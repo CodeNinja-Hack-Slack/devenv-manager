@@ -802,6 +802,11 @@ body {
 .small {
   font-size: 12px;
 }
+.muted.small.warn {
+  margin-top: 6px;
+  color: #f0a44a;
+  opacity: 0.95;
+}
 .mt {
   margin-top: 16px;
 }

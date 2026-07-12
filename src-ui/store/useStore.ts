@@ -87,20 +87,29 @@ export const useStore = create<Store>((set, get) => ({
   setPage: (p) => set({ page: p }),
 
   init: async () => {
-    const r = await api.initRoot();
-    set({ rootDir: r.rootDir, configured: r.configured });
-    if (r.configured) {
-      await get().refreshConfig();
-      await get().loadProfiles();
-      // 启动时加载缓存的扫描结果；若无缓存则自动扫描一次，确保新装工具/新增扫描目录能被发现
-      const cached = await api.getScanCache();
-      if (cached.length > 0) {
-        set({ scanResults: cached });
-        await get().loadDashboardTools();
-        await get().loadCurrentTools();
-      } else {
-        await get().doScan();
+    try {
+      const r = await api.initRoot();
+      set({ rootDir: r.rootDir, configured: r.configured });
+      if (r.configured) {
+        await get().refreshConfig();
+        try {
+          await get().loadProfiles();
+        } catch (e: any) {
+          console.warn('[init] loadProfiles failed:', e?.message ?? e);
+        }
+        // 启动时加载缓存的扫描结果；若无缓存则自动扫描一次，确保新装工具/新增扫描目录能被发现
+        const cached = await api.getScanCache();
+        if (cached.length > 0) {
+          set({ scanResults: cached });
+          await get().loadDashboardTools();
+          await get().loadCurrentTools();
+        } else {
+          await get().doScan();
+        }
       }
+    } catch (e: any) {
+      console.error('[init] failed:', e?.message ?? e, e?.stack);
+      throw e;
     }
   },
 

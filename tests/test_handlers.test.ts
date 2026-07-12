@@ -58,7 +58,12 @@ describe('handlers (mock ipcMain)', () => {
     handlers = {};
     const ipcMain = { handle: (name: string, fn: any) => { handlers[name] = fn; } };
     const dialog = { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) };
-    const app = { getAppPath: () => tmp };
+    const app = {
+      getAppPath: () => tmp,
+      // getPath('userData') 返回 tmp，使 runtimeHome 仍为 tmp/devenv-data（与测试准备一致）；
+      // getPath('exe') 指向 tmp 下，使安装目录内的 devenv-data 与 userData 相同 → 迁移 no-op。
+      getPath: (name: string) => (name === 'exe' ? path.join(tmp, 'DevEnv Manager.exe') : tmp),
+    };
     registerIpc({ ipcMain, dialog, app });
   });
 

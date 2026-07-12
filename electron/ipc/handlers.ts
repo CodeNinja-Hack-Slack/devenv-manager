@@ -27,14 +27,50 @@ const DEBUG = process.env.DEVENV_DEBUG === '1' || process.env.DEVENV_DEBUG === '
 
 // ---- 模块级工具函数 ----
 
-export function registerIpc(ctx: any) {
+// 把旧版落在安装目录内的 devenv-data 迁移到 Electron 用户数据目录（best-effort，仅一次）。
+// 旧版因把运行时数据放在安装目录内，导致：① 生产环境 app.getAppPath() 指向 app.asar 文件，
+// 在其内 mkdir 抛 ENOTDIR；② 重装/升级时数据被 NSIS 清空。迁移到 userData 后两者皆解。
+async function migrateRuntimeHomeIfNeeded(installDir: string, newHome: string): Promise<void> {
+  try {
+    const oldHome = path.join(installDir, 'devenv-data');
+    if (oldHome === newHome) return;
+    const oldRoot = path.join(oldHome, 'devenv-root.txt');
+    const newRoot = path.join(newHome, 'devenv-root.txt');
+    const [oldExists, newExists] = await Promise.all([
+      fs.access(oldRoot).then(() => true).catch(() => false),
+      fs.access(newRoot).then(() => true).catch(() => false),
+    ]);
+    // 仅当旧位置有配置、且新位置还没有时才迁移（避免覆盖/重复）
+    if (oldExists && !newExists) {
+      await fs.mkdir(newHome, { recursive: true });
+      try {
+        await fs.rename(oldRoot, newRoot);
+      } catch {
+        // 跨盘 rename 失败时退化为复制
+        await fs.writeFile(newRoot, await fs.readFile(oldRoot, 'utf8'), 'utf8');
+      }
+      const oldCache = path.join(oldHome, 'scan-cache.json');
+      const newCache = path.join(newHome, 'scan-cache.json');
+      if (await fs.access(oldCache).then(() => true).catch(() => false)) {
+        await fs.writeFile(newCache, await fs.readFile(oldCache, 'utf8'), 'utf8');
+      }
+      console.log('[migrate] 已迁移运行时配置到用户数据目录:', oldHome, '→', newHome);
+    }
+  } catch (e) {
+    console.warn('[migrate] 运行时数据迁移失败（可忽略）:', e?.message ?? e);
+  }
+}
+
+export async function registerIpc(ctx: any) {
   const { ipcMain, dialog, app } = ctx;
-  // 根目录配置文件直接落在软件目录（项目根）下，不写入系统盘 AppData，
-  // 满足"所有运行时文件都创建在软件目录内"的要求。
-  const appRoot = app.getAppPath();
-  // 所有运行时文件统一收纳到软件根下的 devenv-data 目录（含本 root 配置文件本身），
-  // 不在系统盘产生任何文件，也不污染仓库根目录。
-  const runtimeHome = path.join(appRoot, 'devenv-data');
+  // 运行时数据目录：移到 Electron 用户数据目录（默认 AppData/Roaming/DevEnv Manager）。
+  // 旧设计把 devenv-data 放在安装目录内，导致两个致命问题：
+  //   ① 生产环境 app.getAppPath() 指向 app.asar 文件，在其内 mkdir 会抛 ENOTDIR
+  //      （即「开始配置」报错的根因）；
+  //   ② 安装目录内的数据在重装/升级时会被 NSIS 清空，用户数据丢失。
+  // 移到 userData 后：既是真实可写目录，又位于安装目录之外，重装后配置自动保留。
+  const installDir = path.dirname(app.getPath('exe'));
+  const runtimeHome = path.join(app.getPath('userData'), 'devenv-data');
   const rootFile = path.join(runtimeHome, 'devenv-root.txt');
   let rootDir = '';
 
@@ -42,6 +78,9 @@ export function registerIpc(ctx: any) {
   // 任何从该路径读取 / 写入的行为都应被拒绝，避免 E:\a 被无意义地反复重建。
   const LEGACY_ROOT_DIRS = new Set(['e:\\a', 'e:/a']);
   const isLegacyRoot = (r: string) => LEGACY_ROOT_DIRS.has(r.replace(/\\/g, '/').toLowerCase());
+
+  // 首次启动：把旧版落在安装目录内的 devenv-data 迁移到 userData（best-effort，仅一次）
+  await migrateRuntimeHomeIfNeeded(installDir, runtimeHome);
 
   async function loadRoot(): Promise<string> {
     if (rootDir) return rootDir;
@@ -100,6 +139,7 @@ export function registerIpc(ctx: any) {
       return { ok: false, error: '不允许使用遗留的测试根目录 E:\\a，请指定其它目录' };
     }
     rootDir = root.trim();
+    await fs.mkdir(runtimeHome, { recursive: true });
     await fs.writeFile(rootFile, rootDir, 'utf8');
     await saveConfig(defaultConfig(rootDir));
     return { ok: true };

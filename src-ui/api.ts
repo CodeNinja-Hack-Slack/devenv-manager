@@ -202,7 +202,7 @@ export interface InstallPlanUI {
 
 export interface DevEnvApi {
   initRoot(): Promise<{ rootDir: string; configured: boolean }>;
-  setRoot(root: string): Promise<{ ok: boolean }>;
+  setRoot(root: string): Promise<{ ok: boolean; error?: string }>;
   getConfig(): Promise<any>;
   saveConfig(cfg: any): Promise<{ ok: boolean; error?: string }>;
   scan(): Promise<ScanResult[]>;

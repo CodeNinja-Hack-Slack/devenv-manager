@@ -21,3 +21,6 @@ devenv-data/
 
 # 测试覆盖率
 coverage/
+
+# electron-builder 安装包产物（上传到 GitHub Releases，不入库）
+release/

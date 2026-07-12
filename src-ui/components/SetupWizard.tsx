@@ -27,8 +27,11 @@ export function SetupWizard() {
       if (res?.ok) {
         await init(); // 成功后 configured 置真，App 自动进入主界面
       } else {
-        toast('设置失败', 'err');
+        toast(res?.error || '设置失败', 'err');
       }
+    } catch (e: any) {
+      console.error('[SetupWizard] confirm failed:', e);
+      toast(`配置失败：${e?.message || String(e)}`, 'err');
     } finally {
       setBusy(false);
     }
@@ -78,6 +81,9 @@ export function SetupWizard() {
           </div>
 
           <div className="muted small">可在“设置中心”随时修改或迁移根目录。</div>
+          <div className="muted small warn">
+            ⚠️ 建议选择「程序安装目录之外」的位置（例如 D:\devenv），这样重装/升级本软件时已有工具不会丢失。
+          </div>
 
           <MagneticButton className="btn primary lg" onClick={confirm} disabled={busy}>
             {busy ? '正在配置…' : '开始配置 →'}

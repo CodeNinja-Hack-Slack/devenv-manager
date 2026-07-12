@@ -6,17 +6,13 @@
 
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'node:path';
-import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { registerIpc } from './ipc/handlers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 将所有运行时状态（含 Electron 缓存 / localStorage / 日志）重定向到软件目录内，
-// 避免在系统盘（C 盘）AppData 下创建任何文件或文件夹。
-const APP_ROOT = path.resolve(__dirname, '..');
-// 运行时状态集中到软件根下的 devenv-data/.runtime，避免分散且不在系统盘留任何文件
-app.setPath('userData', path.join(APP_ROOT, 'devenv-data', '.runtime'));
+// 诊断日志开关：仅 DEVENV_DEBUG=1 时输出启动扫描详情，避免生产环境拖慢启动。
+const DEBUG = process.env.DEVENV_DEBUG === '1' || process.env.DEVENV_DEBUG === 'true';
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -26,6 +22,9 @@ function createWindow() {
     minHeight: 700,
     title: 'DevEnv Manager',
     backgroundColor: '#0b0e14',
+    // 先隐藏窗口，等首帧渲染完成再显示，彻底消除启动黑屏；
+    // backgroundColor 与暗色主题一致，过渡无闪烁。
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -39,35 +38,41 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist-ui', 'index.html'));
   }
+
+  // 首帧渲染完成后才显示窗口，避免黑屏（渲染完成前不显示）。
+  win.once('ready-to-show', () => win.show());
   return win;
 }
 
 app.whenReady().then(async () => {
-  registerIpc({ ipcMain, dialog, app });
+  // 注册 IPC 前先完成运行时数据目录迁移（best-effort）
+  await registerIpc({ ipcMain, dialog, app });
   createWindow();
 
-  // 启动诊断：在 Electron 主进程环境中直接执行一次扫描，验证 where/扫描引擎是否工作
-  try {
-    const { scanSystem } = await import('../src/core/scanner.js');
-    console.log('[BOOT] Running startup scan test...');
-    const t0 = Date.now();
-    const bootResults = await scanSystem();
-    const dt = Date.now() - t0;
-    console.log(`[BOOT] Startup scan found ${bootResults.length} tools in ${dt}ms:`);
-    for (const r of bootResults) {
-      console.log(`[BOOT]   - ${r.tool}/${r.name} v${r.version} @ ${r.path}`);
-    }
-    // 验证 where 命令本身
-    const { execFile } = await import('node:child_process');
-    const p = require('node:util').promisify(execFile);
+  // 启动诊断（仅 DEVENV_DEBUG=1 时执行，避免生产环境扫描拖慢启动）
+  if (DEBUG) {
     try {
-      const { stdout } = await p('where', ['java'], { windowsHide: true });
-      console.log(`[BOOT] where(java) in Electron = ${stdout.trim().split(/\r?\n/)[0]}`);
+      const { scanSystem } = await import('../src/core/scanner.js');
+      console.log('[BOOT] Running startup scan test...');
+      const t0 = Date.now();
+      const bootResults = await scanSystem();
+      const dt = Date.now() - t0;
+      console.log(`[BOOT] Startup scan found ${bootResults.length} tools in ${dt}ms:`);
+      for (const r of bootResults) {
+        console.log(`[BOOT]   - ${r.tool}/${r.name} v${r.version} @ ${r.path}`);
+      }
+      // 验证 where 命令本身
+      const { execFile } = await import('node:child_process');
+      const p = require('node:util').promisify(execFile);
+      try {
+        const { stdout } = await p('where', ['java'], { windowsHide: true });
+        console.log(`[BOOT] where(java) in Electron = ${stdout.trim().split(/\r?\n/)[0]}`);
+      } catch (e) {
+        console.error('[BOOT] where(java) FAILED:', e.code, e.message?.slice(0, 100));
+      }
     } catch (e) {
-      console.error('[BOOT] where(java) FAILED:', e.code, e.message?.slice(0, 100));
+      console.error('[BOOT] Startup scan threw:', e?.message ?? e);
     }
-  } catch (e) {
-    console.error('[BOOT] Startup scan threw:', e?.message ?? e);
   }
 
   app.on('activate', () => {
