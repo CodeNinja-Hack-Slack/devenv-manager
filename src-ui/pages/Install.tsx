@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore';
 import { GlassCard } from '../components/GlassCard';
 import { MagneticButton } from '../components/MagneticButton';
 import { PathPromptModal } from '../components/PathPromptModal';
+import { ScopeNoticeModal } from '../components/ScopeNoticeModal';
 import { api, type RecognizedPackage, type InstallPlanUI, type StepPlanUI, type StepPreviewUI } from '../api';
 import { join, DATA_DIR } from '../../src/utils/path';
 
@@ -52,19 +53,22 @@ export function Install() {
   const [busy, setBusy] = useState(false);
   // 路径询问弹窗状态
   const [promptOpen, setPromptOpen] = useState(false);
+  // 用户级环境变量提示弹窗状态（双击打开、未提权时，安装前告知环境变量将写入用户级）
+  const [scopeOpen, setScopeOpen] = useState(false);
   // 规划模式（先规划后执行）状态
   const [plan, setPlan] = useState<InstallPlanUI | null>(null);
   const [stepValues, setStepValues] = useState<Record<string, Record<string, any>>>({});
   const [showPlan, setShowPlan] = useState(false);
   const [planDownloadDir, setPlanDownloadDir] = useState('');
   const [planTargetDir, setPlanTargetDir] = useState('');
-  const { installOnline, installOffline, planInstall, saveSettings, toast, isDesktop, rootDir, config } = useStore((s) => ({
+  const { installOnline, installOffline, planInstall, saveSettings, toast, isDesktop, elevated, rootDir, config } = useStore((s) => ({
     installOnline: s.installOnline,
     installOffline: s.installOffline,
     planInstall: s.planInstall,
     saveSettings: s.saveSettings,
     toast: s.toast,
     isDesktop: s.isDesktop,
+    elevated: s.elevated,
     rootDir: s.rootDir,
     config: s.config,
   }));
@@ -278,6 +282,17 @@ export function Install() {
     }
     if (!rootDir) return toast('请先在“设置”中指定安装根目录', 'err');
 
+    // 双击打开（未提权）时，安装前先提示「环境变量将写入用户级」，确认后再继续。
+    // 已勾选「不再提示」(scopePromptEnabled=false) 或已提权(写入系统级)则跳过。
+    if (isDesktop && elevated === false && config?.scopePromptEnabled !== false) {
+      setScopeOpen(true);
+      return;
+    }
+    await proceedAfterScope();
+  };
+
+  /** 通过「用户级变量提示」后的后续流程：按路径询问开关进入规划视图或直接弹路径询问 */
+  const proceedAfterScope = async () => {
     // 已关闭路径询问（用户曾勾选“记住默认路径”）：直接用默认路径进入规划视图（仍不立即执行）
     if (config?.pathPromptEnabled === false) {
       await openPlan();
@@ -285,6 +300,17 @@ export function Install() {
     }
     // 否则每次操作主动询问下载/安装路径，确认后再进入规划视图
     setPromptOpen(true);
+  };
+
+  const onConfirmScope = async (dontAsk: boolean) => {
+    setScopeOpen(false);
+    if (dontAsk) {
+      // 不再提示：把 scopePromptEnabled=false 持久化到配置，后续安装不再弹此提示
+      const next = { ...config, scopePromptEnabled: false };
+      await saveSettings(next);
+    }
+    // 无论是否记住，都继续走路径询问/规划视图流程（不立即执行安装）
+    await proceedAfterScope();
   };
 
   const onConfirmPrompt = async (r: { downloadDir: string; targetDir: string; remember: boolean }) => {
@@ -466,6 +492,14 @@ export function Install() {
         toolVersion={resolvedVersion}
         onConfirm={onConfirmPrompt}
         onCancel={() => setPromptOpen(false)}
+      />
+
+      <ScopeNoticeModal
+        open={scopeOpen}
+        toolName={toolLabel(tool)}
+        toolVersion={resolvedVersion}
+        onConfirm={onConfirmScope}
+        onCancel={() => setScopeOpen(false)}
       />
 
       {/* 规划视图：先规划后执行。未点「执行安装」前，系统不会做任何改动 */}

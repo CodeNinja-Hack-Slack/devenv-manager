@@ -77,6 +77,7 @@ export async function loadConfig(rootDir: string): Promise<DevEnvConfig | null> 
     if (typeof cfg.profiles !== 'object' || cfg.profiles === null) cfg.profiles = {};
     if (typeof cfg.applyEnv !== 'boolean') cfg.applyEnv = true;
     if (typeof cfg.pathPromptEnabled !== 'boolean') cfg.pathPromptEnabled = true;
+    if (typeof cfg.scopePromptEnabled !== 'boolean') cfg.scopePromptEnabled = true;
     if (typeof cfg.language !== 'string') cfg.language = 'zh';
     cfg.rootDir = rootDir;
     return cfg as DevEnvConfig;

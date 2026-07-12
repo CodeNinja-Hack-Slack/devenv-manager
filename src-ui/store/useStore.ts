@@ -32,6 +32,8 @@ interface Store {
   configured: boolean;
   isDesktop: boolean;
   config: any;
+  /** 当前进程是否以管理员身份运行（null=尚未探测）；用于安装前决定是否提示「用户级变量」 */
+  elevated: boolean | null;
   scanResults: ScanResult[];
   scanning: boolean;
   profiles: Record<string, ProfileSpec>;
@@ -77,6 +79,7 @@ export const useStore = create<Store>((set, get) => ({
   configured: false,
   isDesktop: _isDesktopFn(),
   config: null,
+  elevated: null,
   scanResults: [],
   scanning: false,
   profiles: {},
@@ -92,6 +95,14 @@ export const useStore = create<Store>((set, get) => ({
       set({ rootDir: r.rootDir, configured: r.configured });
       if (r.configured) {
         await get().refreshConfig();
+        // 探测提权状态：决定安装前是否提示「环境变量将写入用户级（免管理员）」
+        try {
+          const scope = await api.envScope();
+          set({ elevated: scope.elevated });
+        } catch (e: any) {
+          console.warn('[init] envScope failed:', e?.message ?? e);
+          set({ elevated: null });
+        }
         try {
           await get().loadProfiles();
         } catch (e: any) {

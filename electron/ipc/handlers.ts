@@ -125,6 +125,15 @@ export async function registerIpc(ctx: any) {
     return createEnvBackend(false, elevated ? 'system' : 'user');
   }
 
+  // 供前端在「双击打开（未提权）」场景下，安装前判断环境变量将写入的作用域：
+  //   - elevated=true  → scope='system'（HKLM，对所有用户生效，需管理员）
+  //   - elevated=false → scope='user'（HKCU，仅当前用户生效，免管理员、双击即用）
+  // 前端据此决定是否弹出「用户级变量提示」确认框。
+  ipcMain.handle('env:scope', async () => {
+    const elevated = await isElevated();
+    return { elevated, scope: elevated ? 'system' : 'user' } as { elevated: boolean; scope: 'user' | 'system' };
+  });
+
   // ── 扫描结果持久化缓存 ──────────────────────────────────────────
   const SCAN_CACHE_FILE = path.join(runtimeHome, 'scan-cache.json');
 

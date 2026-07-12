@@ -253,6 +253,8 @@ export interface DevEnvApi {
   migrate(newRoot: string, move?: boolean): Promise<any>;
   /** 只读检视环境变量：仅返回 devenv 管理的开发工具相关变量（HOME 变量 + PATH 注入段） */
   envInspect(): Promise<EnvInspectResult>;
+  /** 查询当前是否提权运行及环境变量作用域（user=HKCU / system=HKLM）；前端用于安装前提示 */
+  envScope(): Promise<{ elevated: boolean; scope: 'user' | 'system' }>;
   profiles(): Promise<Record<string, ProfileSpec>>;
   applyProfile(id: string): Promise<any>;
 }
@@ -651,6 +653,10 @@ const mockApi: DevEnvApi = {
   },
   async applyProfile() {
     return { ok: true, switched: ['jdk@8.0', 'maven@3.9.6'] };
+  },
+  async envScope(): Promise<{ elevated: boolean; scope: 'user' | 'system' }> {
+    // 浏览器预览模式默认视为已提权（scope=system），不弹「用户级变量提示」，避免干扰演示
+    return { elevated: true, scope: 'system' };
   },
   async envInspect(): Promise<EnvInspectResult> {
     if (!mockRoot) return { tools: [], path: { effective: '', expanded: '', total: 0, oursCount: 0, segments: [] } };

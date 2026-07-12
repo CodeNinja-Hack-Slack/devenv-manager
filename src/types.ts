@@ -112,6 +112,8 @@ export interface DevEnvConfig {
    * 该标志随 downloadDir / installDir 一并持久化到 devenv.yaml。
    */
   pathPromptEnabled?: boolean;
+  /** 安装前「用户级环境变量提示」开关：false 表示不再提示（默认 true） */
+  scopePromptEnabled?: boolean;
   tools: InstalledTool[];
   profiles: Record<string, ProfileSpec>;
   language: 'zh' | 'en';

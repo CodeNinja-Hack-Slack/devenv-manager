@@ -46,6 +46,8 @@ const api = {
   migrate: (newRoot: string, move?: boolean) => ipcRenderer.invoke('migrate', newRoot, move),
   // 环境变量（只读检视：仅返回 devenv 管理的开发工具相关变量，不修改任何系统状态）
   envInspect: () => ipcRenderer.invoke('env:inspect'),
+  /** 查询当前进程是否以管理员身份运行，以及环境变量将写入的作用域（user=HKCU / system=HKLM） */
+  envScope: () => ipcRenderer.invoke('env:scope'),
   // 方案
   profiles: () => ipcRenderer.invoke('profiles:list'),
   applyProfile: (id: string) => ipcRenderer.invoke('profile:apply', id),
