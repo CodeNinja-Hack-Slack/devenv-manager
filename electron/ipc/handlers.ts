@@ -27,9 +27,14 @@ const DEBUG = process.env.DEVENV_DEBUG === '1' || process.env.DEVENV_DEBUG === '
 
 // ---- 模块级工具函数 ----
 
+// 遗留根目录哨兵：旧版曾把安装根目录硬编码为 E:\a（测试残留），绝不应当被当作有效配置使用。
+const LEGACY_ROOT_DIRS = new Set(['e:\\a', 'e:/a']);
+const isLegacyRoot = (r: string) => LEGACY_ROOT_DIRS.has(r.replace(/\\/g, '/').toLowerCase());
+
 // 把旧版落在安装目录内的 devenv-data 迁移到 Electron 用户数据目录（best-effort，仅一次）。
 // 旧版因把运行时数据放在安装目录内，导致：① 生产环境 app.getAppPath() 指向 app.asar 文件，
 // 在其内 mkdir 抛 ENOTDIR；② 重装/升级时数据被 NSIS 清空。迁移到 userData 后两者皆解。
+// 注意：若旧配置指向遗留测试根目录 E:\a，则「不迁移」（避免把无效根带入新配置；loadRoot 也会重置为未配置）。
 async function migrateRuntimeHomeIfNeeded(installDir: string, newHome: string): Promise<void> {
   try {
     const oldHome = path.join(installDir, 'devenv-data');
@@ -40,22 +45,27 @@ async function migrateRuntimeHomeIfNeeded(installDir: string, newHome: string): 
       fs.access(oldRoot).then(() => true).catch(() => false),
       fs.access(newRoot).then(() => true).catch(() => false),
     ]);
-    // 仅当旧位置有配置、且新位置还没有时才迁移（避免覆盖/重复）
-    if (oldExists && !newExists) {
-      await fs.mkdir(newHome, { recursive: true });
-      try {
-        await fs.rename(oldRoot, newRoot);
-      } catch {
-        // 跨盘 rename 失败时退化为复制
-        await fs.writeFile(newRoot, await fs.readFile(oldRoot, 'utf8'), 'utf8');
-      }
-      const oldCache = path.join(oldHome, 'scan-cache.json');
-      const newCache = path.join(newHome, 'scan-cache.json');
-      if (await fs.access(oldCache).then(() => true).catch(() => false)) {
-        await fs.writeFile(newCache, await fs.readFile(oldCache, 'utf8'), 'utf8');
-      }
-      console.log('[migrate] 已迁移运行时配置到用户数据目录:', oldHome, '→', newHome);
+    if (!oldExists || newExists) return; // 无旧配置 / 已迁移过 → 跳过
+    // 旧配置指向遗留测试根目录 E:\a 时，直接忽略，不迁移
+    const oldContent = (await fs.readFile(oldRoot, 'utf8')).trim();
+    if (isLegacyRoot(oldContent)) {
+      console.log('[migrate] 旧配置指向遗留根目录 E:\\a，已忽略，不迁移');
+      return;
     }
+    // 仅当旧位置有配置、且新位置还没有时才迁移（避免覆盖/重复）
+    await fs.mkdir(newHome, { recursive: true });
+    try {
+      await fs.rename(oldRoot, newRoot);
+    } catch {
+      // 跨盘 rename 失败时退化为复制
+      await fs.writeFile(newRoot, oldContent, 'utf8');
+    }
+    const oldCache = path.join(oldHome, 'scan-cache.json');
+    const newCache = path.join(newHome, 'scan-cache.json');
+    if (await fs.access(oldCache).then(() => true).catch(() => false)) {
+      await fs.writeFile(newCache, await fs.readFile(oldCache, 'utf8'), 'utf8');
+    }
+    console.log('[migrate] 已迁移运行时配置到用户数据目录:', oldHome, '→', newHome);
   } catch (e) {
     console.warn('[migrate] 运行时数据迁移失败（可忽略）:', e?.message ?? e);
   }
@@ -74,12 +84,8 @@ export async function registerIpc(ctx: any) {
   const rootFile = path.join(runtimeHome, 'devenv-root.txt');
   let rootDir = '';
 
-  // 遗留根目录哨兵：旧版 initRoot() 曾把安装根目录硬编码为 E:\a（测试残留）。
-  // 任何从该路径读取 / 写入的行为都应被拒绝，避免 E:\a 被无意义地反复重建。
-  const LEGACY_ROOT_DIRS = new Set(['e:\\a', 'e:/a']);
-  const isLegacyRoot = (r: string) => LEGACY_ROOT_DIRS.has(r.replace(/\\/g, '/').toLowerCase());
-
   // 首次启动：把旧版落在安装目录内的 devenv-data 迁移到 userData（best-effort，仅一次）
+  // 注：遗留根目录哨兵 LEGACY_ROOT_DIRS / isLegacyRoot 已提升为模块级（见上方），供迁移与 setRoot/migrate 共用。
   await migrateRuntimeHomeIfNeeded(installDir, runtimeHome);
 
   async function loadRoot(): Promise<string> {
