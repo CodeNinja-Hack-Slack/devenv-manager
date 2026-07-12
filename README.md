@@ -184,4 +184,4 @@ npx vitest watch       # 监听模式 / watch mode
 
 ## 许可证 / License
 
-[MIT](LICENSE) © 2026 杨涛 / DevEnv Manager
+[MIT](LICENSE) © 2026 DevEnv Manager

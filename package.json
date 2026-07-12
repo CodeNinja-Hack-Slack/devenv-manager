@@ -4,6 +4,7 @@
   "description": "DevEnv Manager - 统一开发环境管理工具（在线/离线双模式安装、扫描、多版本切换）",
   "type": "module",
   "main": "out/main.js",
+  "author": "DevEnv Manager",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -15,17 +16,22 @@
     "electron:hmr": "npm run build:electron && electron .",
     "electron:build": "vite build && npm run build:electron"
   },
-  "keywords": ["devenv", "devtools", "environment-manager"],
+  "keywords": [
+    "devenv",
+    "devtools",
+    "environment-manager"
+  ],
   "license": "MIT",
   "dependencies": {
     "yaml": "^2.4.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
     "@types/node": "^22.5.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
     "electron": "^31.3.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.23.0",
     "framer-motion": "^11.3.0",
     "react": "^18.3.1",

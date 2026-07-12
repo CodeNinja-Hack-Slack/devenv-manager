@@ -1,0 +1,40 @@
+# DevEnv Manager — Electron 打包配置
+# 用法：先 npm run build:electron && npm run build，再 npx electron-builder --win nsis
+appId: com.devenv.manager
+productName: DevEnv Manager
+copyright: Copyright © 2026 DevEnv Manager
+
+directories:
+  output: release          # 安装包产物输出目录（已加入 .gitignore）
+  buildResources: build    # 图标等资源目录
+
+# 注意：本工程主进程由 esbuild 打包为单文件 out/main.js（ESM），
+# 预加载 out/preload.cjs（CJS），UI 为 dist-ui/。运行时唯一外部依赖是 yaml。
+files:
+  - "out/**/*"
+  - "dist-ui/**/*"
+  - "package.json"
+  - "node_modules/yaml/**/*"
+
+icon: build/icon.ico
+
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-setup.${ext}
+  # 软件内部已把运行时状态重定向到软件根 devenv-data/.runtime，不写系统盘
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false                 # 提供"安装/仅对我"向导而非一键静默
+  perMachine: false               # 默认按用户安装（无需管理员）
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DevEnv Manager
+  menuCategory: true
+  # 安装器界面语言（先中后英）
+  installerLanguages:
+    - zh_CN
+    - en_US
+  # 卸载时清理用户数据由软件自身负责；此处仅移除程序文件与快捷方式
