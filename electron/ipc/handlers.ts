@@ -46,10 +46,14 @@ async function migrateRuntimeHomeIfNeeded(installDir: string, newHome: string): 
       fs.access(newRoot).then(() => true).catch(() => false),
     ]);
     if (!oldExists || newExists) return; // 无旧配置 / 已迁移过 → 跳过
-    // 旧配置指向遗留测试根目录 E:\a 时，直接忽略，不迁移
+    // 旧配置指向遗留测试根目录 E:\a 时：直接忽略、不迁移，并顺手清掉安装目录内那份
+    // 死掉的旧 devenv-data——它只会被 NSIS 升级原样搬回、留着毫无意义，还会让用户每次
+    // 重装都看到 E:\a 残留。彻底清理后，新版本在任何情况下都不会再触碰 E:\a。
     const oldContent = (await fs.readFile(oldRoot, 'utf8')).trim();
     if (isLegacyRoot(oldContent)) {
       console.log('[migrate] 旧配置指向遗留根目录 E:\\a，已忽略，不迁移');
+      await fs.rm(oldHome, { recursive: true, force: true }).catch(() => {});
+      console.log('[migrate] 已清理安装目录内遗留的 devenv-data:', oldHome);
       return;
     }
     // 仅当旧位置有配置、且新位置还没有时才迁移（避免覆盖/重复）
