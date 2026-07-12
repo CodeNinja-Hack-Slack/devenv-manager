@@ -15,7 +15,7 @@ import { switchVersionRef, applyMigrate, versionEnvName, getEffectiveHomeVar, ty
 import { applyProfile } from '../../src/core/profiles.js';
 import { listRemote, REGISTRY, getSpec } from '../../src/tools/registry.js';
 import { recognizePackage } from '../../src/core/recognizer.js';
-import { createEnvBackend, isElevated, broadcastEnvChange, resolveWinExe } from '../../src/platform/env.js';
+import { createEnvBackend, isElevated, broadcastEnvChange, resolveWinExe, type EnvBackend } from '../../src/platform/env.js';
 import { Logger } from '../../src/utils/logger.js';
 import { normalizePath, planBinRef, planBinPath } from '../../src/utils/path.js';
 import { normPathForActive, expandEnv } from './handlers-helpers.js';
@@ -111,6 +111,18 @@ export async function registerIpc(ctx: any) {
     const r = await loadRoot();
     if (!r) return null;
     return (await loadConfig(r)) ?? defaultConfig(r);
+  }
+
+  // 依据是否提权决定环境变量作用域并构造 EnvBackend：
+  //   - applyEnv=false（测试/预览模式）→ dryRun，不落地，scope 无意义；
+  //   - 已提权（以管理员运行）→ 系统级(HKLM)，对所有用户生效；
+  //   - 未提权（双击打开）→ 自动降级为用户级(HKCU)，仅当前用户生效、免管理员。
+  // 这样「双击直接能用」，需要机器级时右键以管理员身份运行即可。
+  async function makeEnv(cfg: DevEnvConfig | null): Promise<EnvBackend> {
+    const dryRun = !(cfg?.applyEnv ?? true);
+    if (dryRun) return createEnvBackend(true, 'system');
+    const elevated = await isElevated();
+    return createEnvBackend(false, elevated ? 'system' : 'user');
   }
 
   // ── 扫描结果持久化缓存 ──────────────────────────────────────────
@@ -271,7 +283,7 @@ export async function registerIpc(ctx: any) {
     const cfg = await getCfg();
     if (!cfg) return { ok: false, error: '未配置根目录，请先在设置中指定' };
     // applyEnv=false（测试模式）时 dryRun=true：仅收集 env 操作、不写系统
-    const env = createEnvBackend(!(cfg?.applyEnv ?? true), 'system');
+    const env = await makeEnv(cfg);
     const logger = new Logger(cfg.rootDir);
     return installTool(
       { cfg, env, logger, platform: process.platform as any, onProgress: (p: any) => event.sender.send('install:progress', p) },
@@ -282,7 +294,7 @@ export async function registerIpc(ctx: any) {
   ipcMain.handle('install:offline', async (event: any, tool: string, opts: any) => {
     const cfg = await getCfg();
     if (!cfg) return { ok: false, error: '未配置根目录，请先在设置中指定' };
-    const env = createEnvBackend(!(cfg?.applyEnv ?? true), 'system');
+    const env = await makeEnv(cfg);
     const logger = new Logger(cfg.rootDir);
     return installTool(
       { cfg, env, logger, platform: process.platform as any, onProgress: (p: any) => event.sender.send('install:progress', p) },
@@ -305,7 +317,7 @@ export async function registerIpc(ctx: any) {
   ipcMain.handle('install:plan', async (_e: any, tool: string, version: string, opts?: any) => {
     const cfg = await getCfg();
     if (!cfg) return { ok: false, error: '未配置根目录，请先在设置中指定' };
-    const env = createEnvBackend(!(cfg?.applyEnv ?? true), 'system');
+    const env = await makeEnv(cfg);
     const logger = new Logger(cfg.rootDir);
     try {
       const plan = planInstall(
@@ -338,13 +350,6 @@ export async function registerIpc(ctx: any) {
   ipcMain.handle('switch', async (_e: any, category: string, version: string) => {
     const cfg = await getCfg();
     if (!cfg) return { ok: false, error: '未配置根目录' };
-    // 系统变量(HKLM)写入需要管理员权限：非测试模式(applyEnv)下预检提权
-    if (cfg.applyEnv !== false) {
-      const elevated = await isElevated();
-      if (!elevated) {
-        return { ok: false, error: '写入系统变量(HKLM)需要管理员权限。\n请右键本程序 →「以管理员身份运行」后重试。' };
-      }
-    }
     // 前置校验：目标版本是否存在于配置中
     const target = cfg.tools.find((t: any) => t.category === category && t.version === version);
     if (!target) return { ok: false, error: `未找到类别「${category}」的版本 ${version}，请先安装该版本。` };
@@ -364,7 +369,8 @@ export async function registerIpc(ctx: any) {
     // 使用引用式版本切换：为每个版本创建固定变量，活跃变量用 %REF% 引用
     // 写入系统变量（HKLM），与用户多版本共存体系对齐
     try {
-      const result = await switchVersionRef(cfg, category as ToolCategory, version, createEnvBackend(!(cfg?.applyEnv ?? true), 'system'));
+      const env = await makeEnv(cfg);
+      const result = await switchVersionRef(cfg, category as ToolCategory, version, env);
       // 广播 WM_SETTINGCHANGE 使其它进程感知环境变量变更（setx/reg add 不自动广播）
       if (cfg.applyEnv !== false) await broadcastEnvChange();
       return result;
@@ -397,20 +403,13 @@ export async function registerIpc(ctx: any) {
   ipcMain.handle('switch:detected', async (_e: any, payload: { tool: string; name: string; category: string; version: string; path: string; homeVar?: string }) => {
     const cfg = await getCfg();
     if (!cfg) return { ok: false, error: '未配置根目录' };
-    // 系统变量(HKLM)写入需要管理员权限：非测试模式(applyEnv)下预检提权
-    if (cfg.applyEnv !== false) {
-      const elevated = await isElevated();
-      if (!elevated) {
-        return { ok: false, error: '写入系统变量(HKLM)需要管理员权限。\n请右键本程序 →「以管理员身份运行」后重试。' };
-      }
-    }
     const fsp = await import('node:fs/promises');
     // 校验路径存在性
     try { await fsp.access(payload.path); } catch {
       return { ok: false, error: `工具路径不存在：${payload.path}，请确认该工具仍安装在系统中。` };
     }
 
-    const env = createEnvBackend(!(cfg?.applyEnv ?? true), 'system');
+    const env = await makeEnv(cfg);
     const homeVar = getEffectiveHomeVar(payload.tool, payload.homeVar);
     const vName = versionEnvName(homeVar, payload.version);
 
@@ -568,16 +567,10 @@ export async function registerIpc(ctx: any) {
     const target = cfg.tools.find((t: any) => t.id === id);
     if (!target) return { ok: false, error: '未找到该工具的纳管记录，可能已被卸载' };
 
-    // 环境变量写入需要管理员权限（卸载可能改写 homeVar/PATH，尤其卸载的是活跃版本时）
-    if (cfg.applyEnv !== false) {
-      const elevated = await isElevated();
-      if (!elevated) {
-        return { ok: false, error: '写入系统变量(HKLM)需要管理员权限。\n请右键本程序 →「以管理员身份运行」后重试。' };
-      }
-    }
+    const env = await makeEnv(cfg);
     try {
       const result = await uninstallTool(
-        { cfg, env: createEnvBackend(!(cfg?.applyEnv ?? true), 'system'), logger: new Logger(cfg.rootDir) },
+        { cfg, env, logger: new Logger(cfg.rootDir) },
         id,
         { deleteFiles: opts?.deleteFiles },
       );
@@ -647,7 +640,7 @@ export async function registerIpc(ctx: any) {
     }
     const cfg = await getCfg();
     if (!cfg) return { ok: false, error: '未配置根目录' };
-    return applyMigrate(cfg, newRoot, createEnvBackend(!(cfg?.applyEnv ?? true), 'system'), move);
+    return applyMigrate(cfg, newRoot, await makeEnv(cfg), move);
   });
 
   // ── 环境变量实时读取辅助 ──────────────────────────────────────────
@@ -679,7 +672,7 @@ export async function registerIpc(ctx: any) {
   ipcMain.handle('profile:apply', async (_e: any, id: string) => {
     const cfg = await getCfg();
     if (!cfg) return { ok: false, error: '未配置根目录' };
-    return applyProfile(cfg, id, createEnvBackend(!(cfg?.applyEnv ?? true), 'system'));
+    return applyProfile(cfg, id, await makeEnv(cfg));
   });
 
   ipcMain.handle('dialog:pickFile', async () => {
