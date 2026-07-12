@@ -1,0 +1,38 @@
+{
+  "name": "devenv-manager",
+  "version": "0.1.0",
+  "description": "DevEnv Manager - 统一开发环境管理工具（在线/离线双模式安装、扫描、多版本切换）",
+  "type": "module",
+  "main": "out/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --packages=external --outfile=out/main.js && esbuild electron/preload.ts --bundle --platform=node --format=cjs --packages=external --outfile=out/preload.cjs",
+    "electron:dev": "vite build && npm run build:electron && electron .",
+    "electron:hmr": "npm run build:electron && electron .",
+    "electron:build": "vite build && npm run build:electron"
+  },
+  "keywords": ["devenv", "devtools", "environment-manager"],
+  "license": "MIT",
+  "dependencies": {
+    "yaml": "^2.4.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "@types/node": "^22.5.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "electron": "^31.3.0",
+    "esbuild": "^0.23.0",
+    "framer-motion": "^11.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.5",
+    "zustand": "^4.5.4"
+  }
+}
